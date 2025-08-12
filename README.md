@@ -1,1 +1,1 @@
-# xml_robust_paser
+# Parsezilla – Crushing malformed XML since 2025
