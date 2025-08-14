@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<diagnostic_report>
+  <report_info>
+    <report_id>diagnostic-1755182582-comprehensive-demo</report_id>
+    <generated_at>2025-08-14 14:43:02 UTC</generated_at>
+    <correlation_id>comprehensive-demo</correlation_id>
+    <document_health>FAIR</document_health>
+    <overall_confidence>0.970</overall_confidence>
+    <is_healthy>False</is_healthy>
+  </report_info>
+  <processing_summary>
+    <parsing_success>True</parsing_success>
+    <parsing_confidence>1.0</parsing_confidence>
+    <total_diagnostics>1</total_diagnostics>
+    <has_document>True</has_document>
+    <processing_time_ms>0.0</processing_time_ms>
+    <element_count>5</element_count>
+    <attribute_count>2</attribute_count>
+    <max_depth>1</max_depth>
+    <has_root>True</has_root>
+    <validation_performed>True</validation_performed>
+    <validation_success>False</validation_success>
+    <validation_confidence>0.9</validation_confidence>
+    <validation_issues>1</validation_issues>
+    <elements_validated>5</elements_validated>
+    <attributes_validated>2</attributes_validated>
+    <optimization_performed>True</optimization_performed>
+    <optimization_success>True</optimization_success>
+    <optimization_confidence>1.0</optimization_confidence>
+    <total_optimizations>3</total_optimizations>
+    <elements_affected>4</elements_affected>
+    <memory_saved_bytes>468</memory_saved_bytes>
+  </processing_summary>
+  <error_summary>
+    <total_errors>1</total_errors>
+    <critical_errors>0</critical_errors>
+    <recoverable_errors>1</recoverable_errors>
+    <error_rate>0.2000</error_rate>
+    <error_categories>
+      <category name="namespace">1</category>
+    </error_categories>
+    <root_causes>
+      <cause>Namespace declaration issues</cause>
+    </root_causes>
+  </error_summary>
+  <repair_summary>
+    <total_repairs>3</total_repairs>
+    <success_rate>1.000</success_rate>
+    <elements_repaired>4</elements_repaired>
+    <repair_confidence>1.000</repair_confidence>
+    <impact_assessment>Minor repairs applied - document quality improved</impact_assessment>
+  </repair_summary>
+  <recommendations>
+    <recommendation>📈 High error rate detected - consider document validation tools</recommendation>
+    <recommendation>📋 Check XML namespace declarations and prefixes</recommendation>
+    <recommendation>📝 Address validation issues for better document quality</recommendation>
+  </recommendations>
+</diagnostic_report>

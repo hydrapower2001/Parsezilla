@@ -1,0 +1,126 @@
+{
+  "report_id": "diagnostic-1755182582-comprehensive-demo",
+  "generated_at": "2025-08-14 14:43:02 UTC",
+  "correlation_id": "comprehensive-demo",
+  "processing_summary": {
+    "parsing_success": true,
+    "parsing_confidence": 1.0,
+    "total_diagnostics": 1,
+    "has_document": true,
+    "processing_time_ms": 0.0,
+    "element_count": 5,
+    "attribute_count": 2,
+    "max_depth": 1,
+    "has_root": true,
+    "validation_performed": true,
+    "validation_success": false,
+    "validation_confidence": 0.9,
+    "validation_issues": 1,
+    "elements_validated": 5,
+    "attributes_validated": 2,
+    "optimization_performed": true,
+    "optimization_success": true,
+    "optimization_confidence": 1.0,
+    "total_optimizations": 3,
+    "elements_affected": 4,
+    "memory_saved_bytes": 468
+  },
+  "document_health": "FAIR",
+  "overall_confidence": 0.97,
+  "error_summary": {
+    "total_errors": 1,
+    "critical_errors": 0,
+    "recoverable_errors": 1,
+    "error_categories": {
+      "namespace": 1
+    },
+    "root_causes": [
+      "Namespace declaration issues"
+    ],
+    "affected_elements": 1,
+    "error_rate": 0.2
+  },
+  "warning_count": 1,
+  "info_count": 0,
+  "repair_summary": {
+    "total_repairs": 3,
+    "successful_repairs": 3,
+    "failed_repairs": 0,
+    "repair_types": {
+      "parsing_repairs": 0,
+      "optimizations": 3
+    },
+    "repair_confidence": 1.0,
+    "elements_repaired": 4,
+    "repair_impact_assessment": "Minor repairs applied - document quality improved",
+    "repair_success_rate": 1.0
+  },
+  "diagnostic_categories": {
+    "structure": {
+      "name": "Document Structure",
+      "description": "Issues with document structure and hierarchy",
+      "severity_level": 4,
+      "issue_count": 0
+    },
+    "content": {
+      "name": "Content Validation",
+      "description": "Issues with text content and data",
+      "severity_level": 3,
+      "issue_count": 1
+    },
+    "attributes": {
+      "name": "Attribute Validation",
+      "description": "Issues with element attributes",
+      "severity_level": 3,
+      "issue_count": 1
+    },
+    "namespaces": {
+      "name": "Namespace Issues",
+      "description": "Problems with XML namespaces",
+      "severity_level": 3,
+      "issue_count": 1
+    },
+    "encoding": {
+      "name": "Encoding Issues",
+      "description": "Character encoding problems",
+      "severity_level": 4,
+      "issue_count": 0
+    },
+    "compliance": {
+      "name": "XML Compliance",
+      "description": "XML specification compliance issues",
+      "severity_level": 2,
+      "issue_count": 2
+    },
+    "optimization": {
+      "name": "Optimization Opportunities",
+      "description": "Areas for performance optimization",
+      "severity_level": 2,
+      "issue_count": 0
+    },
+    "security": {
+      "name": "Security Concerns",
+      "description": "Potential security issues",
+      "severity_level": 5,
+      "issue_count": 0
+    }
+  },
+  "severity_breakdown": {
+    "CRITICAL": 0,
+    "ERROR": 1,
+    "WARNING": 1,
+    "INFO": 0
+  },
+  "recommendations": [
+    "\ud83d\udcc8 High error rate detected - consider document validation tools",
+    "\ud83d\udccb Check XML namespace declarations and prefixes",
+    "\ud83d\udcdd Address validation issues for better document quality"
+  ],
+  "available_formats": [
+    "text",
+    "json",
+    "xml",
+    "html"
+  ],
+  "is_healthy": false
+}
