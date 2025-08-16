@@ -234,72 +234,99 @@ class XMLTokenizer:
         self.fast_path_threshold = 0.7     # Confidence threshold for fast-path
 
     def _detect_well_formed_xml(self, content: str) -> bool:
-        """Detect if the XML appears to be well-formed for fast-path optimization.
+        """Detect if the XML is truly well-formed for fast-path optimization.
+        
+        Fast-path should ONLY be used for perfectly well-formed XML.
+        Any malformation indicators should immediately disqualify fast-path.
         
         Args:
             content: XML content to analyze
             
         Returns:
-            True if content appears well-formed enough for fast-path processing
+            True ONLY if content is well-formed and safe for fast-path processing
         """
         if not content or not self.enable_fast_path:
             return False
 
-        # Sample first portion of content for analysis
-        sample = content[:self.fast_path_sample_size]
-
-        # Quick heuristics for well-formed XML
-        score = 0.0
-
-        # Check for XML declaration (strong indicator)
-        if sample.strip().startswith("<?xml"):
-            score += 0.25
-
-        # Check tag balancing in sample
-        open_tags = sample.count("<")
-        close_tags = sample.count(">")
-        # Allow for incomplete last tag
-        if open_tags > 0 and abs(open_tags - close_tags) <= 1:
-            score += 0.25
+        # Analyze the entire content for strict well-formedness
+        content_stripped = content.strip()
+        
+        # Immediate disqualifiers - any of these means use robust processing
+        malformation_indicators = [
+            "<<", ">>", "<>", "><",  # Malformed tag sequences
+            "< /",  # Spaces in closing tags
+        ]
+        
+        for indicator in malformation_indicators:
+            if indicator in content:
+                logger.debug(
+                    "Fast-path disabled due to malformation indicator",
+                    extra={
+                        "component": "xml_tokenizer",
+                        "correlation_id": self.correlation_id,
+                        "indicator": indicator
+                    }
+                )
+                return False
+        
+        # Check for unquoted attributes - immediate disqualifier
+        import re
+        unquoted_attr_pattern = r'=\s*[a-zA-Z_][a-zA-Z0-9_]*(?=\s|>)'
+        if re.search(unquoted_attr_pattern, content):
+            logger.debug(
+                "Fast-path disabled due to unquoted attributes",
+                extra={
+                    "component": "xml_tokenizer", 
+                    "correlation_id": self.correlation_id
+                }
+            )
+            return False
+        
+        # Check for proper tag balancing in entire content
+        open_tags = content.count("<")
+        close_tags = content.count(">")
+        if open_tags != close_tags:
+            logger.debug(
+                "Fast-path disabled due to unbalanced tags",
+                extra={
+                    "component": "xml_tokenizer",
+                    "correlation_id": self.correlation_id,
+                    "open_tags": open_tags,
+                    "close_tags": close_tags
+                }
+            )
+            return False
 
         # Check for proper quote pairing in attributes
-        single_quotes = sample.count("'")
-        double_quotes = sample.count('"')
-        if single_quotes % 2 == 0 and double_quotes % 2 == 0:
-            score += 0.15
+        single_quotes = content.count("'")
+        double_quotes = content.count('"')
+        if single_quotes % 2 != 0 or double_quotes % 2 != 0:
+            logger.debug(
+                "Fast-path disabled due to unbalanced quotes",
+                extra={
+                    "component": "xml_tokenizer",
+                    "correlation_id": self.correlation_id,
+                    "single_quotes": single_quotes,
+                    "double_quotes": double_quotes
+                }
+            )
+            return False
 
-        # Check for XML-like structure patterns
-        if "<" in sample and ">" in sample:
-            # Basic tag structure present
-            score += 0.15
-            # Bonus for multiple tags
-            if sample.count("<") > 1 and sample.count(">") > 1:
-                score += 0.1
-
-        # Check for absence of obvious malformations
-        malformation_indicators = ["<<", ">>", "<>", "><"]
-        malformation_count = sum(
-            sample.count(indicator) for indicator in malformation_indicators
-        )
-        if malformation_count == 0:
-            score += 0.1
-
-        # Maximum possible score is now 1.0
-        confidence = score
-
+        # Basic structure requirements for well-formed XML
+        if not (content_stripped.startswith("<") and content_stripped.endswith(">")):
+            return False
+            
+        # If we get here, the XML appears truly well-formed
         logger.debug(
-            "Fast-path detection analysis",
+            "Fast-path enabled for well-formed XML",
             extra={
                 "component": "xml_tokenizer",
                 "correlation_id": self.correlation_id,
-                "confidence": confidence,
-                "threshold": self.fast_path_threshold,
-                "sample_size": len(sample),
-                "fast_path_enabled": confidence >= self.fast_path_threshold
+                "content_length": len(content)
             }
         )
-
-        return confidence >= self.fast_path_threshold
+        
+        return True
 
     def _fast_path_tokenize(self, content: str) -> List[Token]:
         """Optimized tokenization for well-formed XML content.
@@ -369,7 +396,8 @@ class XMLTokenizer:
                     ))
 
                 else:
-                    # Regular tag - emit TAG_START
+                    # Regular tag - simple tokenization for well-formed XML only
+                    # Emit TAG_START
                     tokens.append(Token(
                         type=TokenType.TAG_START,
                         value="<",
@@ -377,7 +405,7 @@ class XMLTokenizer:
                         confidence=1.0
                     ))
 
-                    # Parse tag name and attributes quickly
+                    # Parse tag name and attributes simply (well-formed XML assumed)
                     tag_inner = tag_content[1:-1].strip()
                     if tag_inner.startswith("/"):
                         # Closing tag
@@ -400,11 +428,11 @@ class XMLTokenizer:
                                 confidence=1.0
                             ))
 
-                            # Parse attributes quickly (simplified for fast-path)
+                            # Simple attribute parsing for well-formed XML only
                             attr_text = " ".join(parts[1:])
                             if attr_text:
-                                # Basic attribute parsing for fast-path
                                 import re
+                                # Only handle properly quoted attributes (well-formed XML)
                                 attr_pattern = r'(\w+)=(["\'])([^"\']*)\2'
                                 for match in re.finditer(attr_pattern, attr_text):
                                     attr_name, quote, attr_value = match.groups()
@@ -700,6 +728,10 @@ class XMLTokenizer:
     def _process_text_content(self, char: str) -> None:
         """Process character in text content state."""
         if char == "<":
+            # Look ahead to determine if this is a real tag or text that needs escaping
+            # For now, we'll use a simple heuristic: assume it's a tag start
+            # The recovery engine will handle cases where it's not
+            
             # Finalize any accumulated text
             if self.token_buffer:
                 self._emit_token(TokenType.TEXT, self.token_buffer)
@@ -708,6 +740,11 @@ class XMLTokenizer:
             self._start_new_token()
             self.token_buffer = char
             self.state = TokenizerState.TAG_OPENING
+        elif char == ">":
+            # Convert standalone > to &gt; in text content
+            if not self.token_buffer:
+                self._start_new_token()
+            self.token_buffer += "&gt;"
         else:
             # Accumulate text content
             if not self.token_buffer:
@@ -728,6 +765,16 @@ class XMLTokenizer:
             # Processing instruction
             self.token_buffer += char
             self.state = TokenizerState.PI_START
+        elif char == "<":
+            # Double < - treat the first < as text content that needs entity encoding
+            # Go back to text content state and emit &lt; then start new tag
+            self._start_new_token()
+            self.token_buffer = "&lt;"
+            self._emit_token(TokenType.TEXT, self.token_buffer)
+            # Start processing the second < as a new tag
+            self._start_new_token()
+            self.token_buffer = char
+            # Stay in TAG_OPENING state to process this new <
         elif char.isspace():
             # Invalid - tag name cannot start with whitespace
             self._enter_error_recovery(char, "Tag name cannot start with whitespace")
@@ -744,9 +791,8 @@ class XMLTokenizer:
     def _process_tag_closing(self, char: str) -> None:
         """Process character in tag closing state (after </)."""
         if self._is_name_start_char(char):
-            # Start of closing tag name - emit the collected </ tokens
-            self._emit_token(TokenType.TAG_START, "<")
-            self._emit_token(TokenType.TEXT, "/")  # Emit the slash as separate token
+            # Start of closing tag name - emit TAG_START with "/" to indicate closing tag
+            self._emit_token(TokenType.TAG_START, "</")
             self._start_new_token()
             self.token_buffer = char
             self.state = TokenizerState.TAG_NAME

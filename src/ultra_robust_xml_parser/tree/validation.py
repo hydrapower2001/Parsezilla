@@ -1114,8 +1114,8 @@ class OutputFormatter:
         """Format single element as XML string."""
         indent = config.xml_indent * indent_level if pretty else ""
         
-        # Start opening tag
-        tag_parts = [f"<{element.tag}"]
+        # Start opening tag (without < bracket)
+        tag_parts = [element.tag]
         
         # Add attributes
         if config.include_attributes and element.attributes:
@@ -1136,13 +1136,11 @@ class OutputFormatter:
         
         if not has_content:
             # Self-closing tag
-            opening_tag = f"{indent}<{' '.join(tag_parts[0].split()[0:])} {' '.join(tag_parts[1:])}/>"
+            opening_tag = f"{indent}<{' '.join(tag_parts)}/>"
             return opening_tag
         
         # Complete opening tag
-        opening_tag = f"{indent}<{' '.join(tag_parts[0].split()[0:])} {' '.join(tag_parts[1:])}>"
-        if not tag_parts[1:]:  # No attributes
-            opening_tag = f"{indent}<{element.tag}>"
+        opening_tag = f"{indent}<{' '.join(tag_parts)}>"
         
         # Add text content
         content_parts = []
@@ -1310,7 +1308,18 @@ class OutputFormatter:
             )
     
     def _escape_xml_text(self, text: str) -> str:
-        """Escape XML text content."""
+        """Escape XML text content, avoiding double-encoding of already escaped entities."""
+        # Check if text already contains properly encoded entities
+        import re
+        
+        # Pattern to match already encoded entities
+        entity_pattern = r'&(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);'
+        
+        # If the text already contains XML entities, assume it's already properly encoded
+        if re.search(entity_pattern, text):
+            return text
+        
+        # Otherwise, perform standard XML escaping
         return (text
                 .replace('&', '&amp;')
                 .replace('<', '&lt;')

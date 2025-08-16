@@ -39,5 +39,17 @@ def test_package_all_exports() -> None:
 
     # Assert
     assert hasattr(ultra_robust_xml_parser, "__all__")
-    expected_exports = ["__author__", "__version__"]
+    expected_exports = [
+        "__author__",
+        "__version__",
+        "parse",
+        "parse_string", 
+        "parse_file",
+        "UltraRobustXMLParser",
+        "ParseResult",
+        "XMLDocument",
+        "XMLElement",
+        "TokenizationConfig",
+        "StreamProcessingConfig",
+    ]
     assert ultra_robust_xml_parser.__all__ == expected_exports

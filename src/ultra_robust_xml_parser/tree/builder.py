@@ -1029,6 +1029,10 @@ class XMLTreeBuilder:
         """Handle tag name token for element creation."""
         tag_name = token.value
 
+        # Auto-close unclosed elements if this tag should be a sibling, not child
+        if self._element_stack and self._should_auto_close_for_sibling(tag_name):
+            self._auto_close_for_sibling(tag_name)
+
         # Create new element
         element = XMLElement(
             tag=tag_name,
@@ -1238,3 +1242,91 @@ class XMLTreeBuilder:
         repair_impact = self._repairs_applied * _REPAIR_CONFIDENCE_IMPACT_PER_REPAIR
         base_confidence = result.document.confidence if result.document else 1.0
         result.confidence = max(0.0, base_confidence - repair_impact)
+
+    def _should_auto_close_for_sibling(self, new_tag_name: str) -> bool:
+        """Determine if unclosed elements should be auto-closed for a new sibling tag.
+        
+        Args:
+            new_tag_name: Name of the new tag being opened
+            
+        Returns:
+            True if the current element should be auto-closed to make room for a sibling
+        """
+        if not self._element_stack:
+            return False
+            
+        current_element = self._element_stack[-1]
+        current_tag = current_element.tag
+        
+        has_text_buffer = bool(self._text_buffer)
+        has_element_text = bool(current_element.text and current_element.text.strip())
+        has_text = has_text_buffer or has_element_text
+        is_different_tag = current_tag != new_tag_name
+        is_typical_child = self._is_typical_child_tag(current_tag, new_tag_name)
+        
+        
+        # Simple heuristic: if we have accumulated text content in the current element,
+        # and we're opening a new tag that's not typically a child, auto-close
+        if (has_text and is_different_tag and not is_typical_child):
+            return True
+            
+        return False
+    
+    def _is_typical_child_tag(self, parent_tag: str, child_tag: str) -> bool:
+        """Determine if child_tag is typically a child of parent_tag.
+        
+        Args:
+            parent_tag: The parent tag name
+            child_tag: The potential child tag name
+            
+        Returns:
+            True if child_tag is typically a child of parent_tag
+        """
+        # Simple heuristic: certain tags commonly contain others
+        container_tags = {
+            'html': ['head', 'body'],
+            'head': ['title', 'meta', 'link', 'script', 'style'],
+            'body': ['div', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'span', 'a'],
+            'div': ['p', 'span', 'a', 'img', 'br'],
+            'table': ['thead', 'tbody', 'tr'],
+            'tr': ['td', 'th'],
+            'ul': ['li'],
+            'ol': ['li'],
+        }
+        
+        parent_lower = parent_tag.lower()
+        child_lower = child_tag.lower()
+        
+        # Check if child is in the typical children list
+        if parent_lower in container_tags:
+            return child_lower in container_tags[parent_lower]
+            
+        # Default: assume sibling relationship for unknown tags with text content
+        return False
+        
+    def _auto_close_for_sibling(self, new_tag_name: str) -> None:
+        """Auto-close the current element to make room for a sibling tag.
+        
+        Args:
+            new_tag_name: Name of the new sibling tag being opened
+        """
+        if not self._element_stack:
+            return
+            
+        # Close the current element
+        element = self._element_stack[-1]
+        
+        # Create repair record
+        repair = StructureRepair(
+            repair_type="unclosed_elements",
+            description=f"Auto-closed unclosed element <{element.tag}> for sibling <{new_tag_name}>",
+            original_tokens=element.source_tokens,
+            confidence_impact=0.1,
+            severity="minor"
+        )
+        
+        element.repairs.append(repair)
+        self._repairs_applied += 1
+        
+        # Close the element
+        self._close_current_element()
