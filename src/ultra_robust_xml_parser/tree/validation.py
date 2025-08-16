@@ -1134,7 +1134,10 @@ class OutputFormatter:
         if not has_content and config.exclude_empty_elements:
             return ""  # Skip empty elements
         
-        if not has_content:
+        # Check if element should preserve structure (e.g., when invalid content was removed)
+        should_preserve_structure = getattr(element, 'preserve_structure', False)
+        
+        if not has_content and not should_preserve_structure:
             # Self-closing tag
             opening_tag = f"{indent}<{' '.join(tag_parts)}/>"
             return opening_tag
@@ -1144,6 +1147,17 @@ class OutputFormatter:
         
         # Add text content
         content_parts = []
+        
+        # Add any comments first (unescaped)
+        if hasattr(element, '_comments'):
+            for comment in element._comments:
+                content_parts.append(comment)
+                
+        # Add any processing instructions (unescaped)
+        if hasattr(element, '_processing_instructions'):
+            for pi in element._processing_instructions:
+                content_parts.append(pi)
+        
         if element.text:
             escaped_text = self._escape_xml_text(element.text)
             if minify:
@@ -1309,21 +1323,40 @@ class OutputFormatter:
     
     def _escape_xml_text(self, text: str) -> str:
         """Escape XML text content, avoiding double-encoding of already escaped entities."""
-        # Check if text already contains properly encoded entities
         import re
         
-        # Pattern to match already encoded entities
+        # First, repair malformed entities by adding missing semicolons
+        repaired_text = self._repair_malformed_entities(text)
+        
+        # Pattern to match properly encoded entities
         entity_pattern = r'&(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);'
         
         # If the text already contains XML entities, assume it's already properly encoded
-        if re.search(entity_pattern, text):
-            return text
+        if re.search(entity_pattern, repaired_text):
+            return repaired_text
         
         # Otherwise, perform standard XML escaping
-        return (text
+        return (repaired_text
                 .replace('&', '&amp;')
                 .replace('<', '&lt;')
                 .replace('>', '&gt;'))
+    
+    def _repair_malformed_entities(self, text: str) -> str:
+        """Repair malformed entity references by adding missing semicolons."""
+        import re
+        
+        # Pattern to match incomplete entities (& followed by entity name but no semicolon)
+        # Look for & followed by known entity names that are not already terminated with ;
+        incomplete_entity_pattern = r'&(amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+)(?![;a-zA-Z0-9])'
+        
+        def repair_entity(match):
+            entity_name = match.group(1)
+            return f'&{entity_name};'
+        
+        # Replace incomplete entities with complete ones
+        repaired_text = re.sub(incomplete_entity_pattern, repair_entity, text)
+        
+        return repaired_text
     
     def _escape_xml_attribute(self, value: str) -> str:
         """Escape XML attribute value."""

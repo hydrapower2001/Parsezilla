@@ -73,6 +73,8 @@ class TokenizerState(Enum):
     PI_START = auto()           # Starting processing instruction <?
     PI_CONTENT = auto()         # Inside processing instruction
     PI_END = auto()             # Ending processing instruction ?>
+    DOT_PREFIX = auto()         # Processing dot-prefixed tag (e.g., <.doc>)
+    DOT_PREFIX_CLOSING = auto() # Processing dot-prefixed closing tag (e.g., </.doc>)
     ERROR_RECOVERY = auto()     # Error recovery state
 
 
@@ -688,6 +690,10 @@ class XMLTokenizer:
             self._process_pi_start(char)
         elif self.state == TokenizerState.PI_CONTENT:
             self._process_pi_content(char)
+        elif self.state == TokenizerState.DOT_PREFIX:
+            self._process_dot_prefix(char)
+        elif self.state == TokenizerState.DOT_PREFIX_CLOSING:
+            self._process_dot_prefix_closing(char)
         else:
             # Error recovery - should never reach here with proper state machine
             self._enter_error_recovery(char, f"Unknown state: {self.state}")
@@ -784,6 +790,9 @@ class XMLTokenizer:
             self._start_new_token()
             self.token_buffer = char
             self.state = TokenizerState.TAG_NAME
+        elif char == ".":
+            # Potential dot-prefixed tag - switch to a special state to handle it
+            self.state = TokenizerState.DOT_PREFIX
         else:
             # Invalid tag start
             self._enter_error_recovery(char, f"Invalid tag start character: {char}")
@@ -796,12 +805,41 @@ class XMLTokenizer:
             self._start_new_token()
             self.token_buffer = char
             self.state = TokenizerState.TAG_NAME
+        elif char == ".":
+            # Dot-prefixed closing tag (e.g., </.doc>) - switch to special state
+            self.state = TokenizerState.DOT_PREFIX_CLOSING
         elif char.isspace():
             # Whitespace after </ - invalid but we can recover
             self._enter_error_recovery(char, "Whitespace after </")
         else:
             # Invalid character after </
             self._enter_error_recovery(char, f"Invalid character after </: {char}")
+
+    def _process_dot_prefix(self, char: str) -> None:
+        """Process character after seeing a dot in tag opening position (e.g., <.doc>)."""
+        if self._is_name_start_char(char):
+            # Valid tag name character after dot - emit TAG_START and start tag name
+            # Skip the dot and treat this as the start of a valid tag name
+            self._emit_token(TokenType.TAG_START, "<")
+            self._start_new_token()
+            self.token_buffer = char
+            self.state = TokenizerState.TAG_NAME
+        else:
+            # Invalid character after dot - enter error recovery
+            self._enter_error_recovery(char, f"Invalid character after dot in tag: {char}")
+
+    def _process_dot_prefix_closing(self, char: str) -> None:
+        """Process character after seeing a dot in closing tag position (e.g., </.doc>)."""
+        if self._is_name_start_char(char):
+            # Valid tag name character after dot - emit TAG_START and start tag name
+            # Skip the dot and treat this as the start of a valid closing tag name
+            self._emit_token(TokenType.TAG_START, "</")
+            self._start_new_token()
+            self.token_buffer = char
+            self.state = TokenizerState.TAG_NAME
+        else:
+            # Invalid character after dot - enter error recovery
+            self._enter_error_recovery(char, f"Invalid character after dot in closing tag: {char}")
 
     def _process_tag_name(self, char: str) -> None:
         """Process character in tag name state."""
@@ -833,7 +871,16 @@ class XMLTokenizer:
                 self._emit_token(TokenType.ATTR_NAME, self.token_buffer)
             self.state = TokenizerState.ATTR_VALUE_START
         else:
-            self._enter_error_recovery(char, f"Invalid character in tag name: {char}")
+            # Invalid character in tag name - try to complete the tag if we have a valid name
+            if self.token_buffer and self._is_valid_tag_name(self.token_buffer):
+                # Complete the incomplete tag by auto-closing it
+                self._emit_token(TokenType.TAG_NAME, self.token_buffer)
+                self._emit_token(TokenType.TAG_END, ">")
+                self.state = TokenizerState.TEXT_CONTENT
+                # Process the current character in text content state
+                self._process_text_content(char)
+            else:
+                self._enter_error_recovery(char, f"Invalid character in tag name: {char}")
 
     def _process_attr_name(self, char: str) -> None:
         """Process character in attribute name state."""
@@ -959,9 +1006,39 @@ class XMLTokenizer:
         """Process character in comment content."""
         self.token_buffer += char
         if self.token_buffer.endswith("-->"):
-            # End of comment
+            # End of comment - check for and repair invalid -- sequences
             comment_content = self.token_buffer[:-3]  # Remove -->
-            self._emit_token(TokenType.COMMENT, comment_content)
+            
+            # Check if comment contains invalid -- sequences (not at the end)
+            repaired_content = comment_content
+            repairs = []
+            
+            # Find and replace -- sequences that are not part of the closing -->
+            # Look for -- that's not followed by > (which would be the valid closing)
+            if "--" in comment_content:
+                # Replace -- with - (remove one dash)
+                repaired_content = comment_content.replace("--", "-")
+                
+                if repaired_content != comment_content:
+                    repair = TokenRepair(
+                        repair_type="malformed_comment",
+                        description="Comment contained invalid --, replaced with -",
+                        original_content=comment_content,
+                        repaired_content=repaired_content,
+                        confidence_impact=-0.1
+                    )
+                    repairs.append(repair)
+            
+            # Emit the comment token with any repairs
+            token = Token(
+                type=TokenType.COMMENT,
+                value=repaired_content,
+                position=self.current_token_start,
+                confidence=0.9 if repairs else 1.0,
+                repairs=repairs
+            )
+            self.tokens.append(token)
+            self._start_new_token()  # Reset token buffer
             self.state = TokenizerState.TEXT_CONTENT
 
     def _process_cdata_start(self, char: str) -> None:
@@ -993,12 +1070,83 @@ class XMLTokenizer:
 
     def _process_pi_content(self, char: str) -> None:
         """Process character in processing instruction content."""
+        if char == '>' and not self.token_buffer.endswith('?'):
+            # Malformed PI ending with > instead of ?> - emit as text immediately
+            self.token_buffer += char
+            
+            # Create repair info
+            repair = TokenRepair(
+                repair_type="malformed_processing_instruction",
+                description="Processing instruction malformed, treated as text",
+                original_content=self.token_buffer,
+                repaired_content=self.token_buffer,
+                confidence_impact=-0.3
+            )
+            
+            # Emit as text token
+            token = Token(
+                type=TokenType.TEXT,
+                value=self.token_buffer,
+                position=self.current_token_start,
+                confidence=0.7,
+                repairs=[repair]
+            )
+            self.tokens.append(token)
+            
+            # Reset and continue normal processing
+            self._start_new_token()
+            self.state = TokenizerState.TEXT_CONTENT
+            return
+        elif char == '<' and self.token_buffer.endswith('?'):
+            # Malformed PI with ? but missing > - repair by adding missing >
+            # Create repair info
+            repair = TokenRepair(
+                repair_type="malformed_processing_instruction",
+                description="Processing instruction missing closing >, added missing >",
+                original_content=self.token_buffer,
+                repaired_content=self.token_buffer + ">",
+                confidence_impact=-0.1
+            )
+            
+            # Extract PI content (remove initial <? and trailing ?)
+            pi_content = self.token_buffer[2:-1]  # Remove <? and ?
+            
+            # Emit the repaired PI
+            token = Token(
+                type=TokenType.PROCESSING_INSTRUCTION,
+                value=pi_content,
+                position=self.current_token_start,
+                confidence=0.9,
+                repairs=[repair]
+            )
+            self.tokens.append(token)
+            
+            # Now process the < as start of a new token (likely closing tag)
+            self._start_new_token()
+            self.token_buffer = char  # Start new token with the <
+            self.state = TokenizerState.TAG_OPENING
+            return
+        
         self.token_buffer += char
         if self.token_buffer.endswith("?>"):
-            # End of processing instruction
+            # End of properly formed processing instruction
             pi_content = self.token_buffer[2:-2]  # Remove <? and ?>
             self._emit_token(TokenType.PROCESSING_INSTRUCTION, pi_content)
             self.state = TokenizerState.TEXT_CONTENT
+
+    def _repair_text_entities(self, text: str) -> str:
+        """Repair malformed entity references in text content."""
+        import re
+        
+        # Pattern to match incomplete entities (& followed by entity name but no semicolon)
+        incomplete_entity_pattern = r'&(amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+)(?![;a-zA-Z0-9])'
+        
+        def repair_entity(match):
+            entity_name = match.group(1)
+            return f'&{entity_name};'
+        
+        # Replace incomplete entities with complete ones
+        return re.sub(incomplete_entity_pattern, repair_entity, text)
 
     def _skip_whitespace_and_transition(self) -> None:
         """Skip whitespace and transition to appropriate state."""
@@ -1244,6 +1392,16 @@ class XMLTokenizer:
         return (self._is_name_start_char(char) or
                 char.isdigit() or
                 char in ".-")
+
+    def _is_valid_tag_name(self, name: str) -> bool:
+        """Check if string is a valid XML tag name."""
+        if not name:
+            return False
+        # Must start with valid name start character
+        if not self._is_name_start_char(name[0]):
+            return False
+        # All characters must be valid name characters
+        return all(self._is_name_char(char) for char in name)
 
     def get_recovery_statistics(self) -> Optional[Dict[str, Any]]:
         """Get comprehensive recovery statistics from the recovery engine.

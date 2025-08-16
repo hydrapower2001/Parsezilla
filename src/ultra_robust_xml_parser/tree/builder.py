@@ -62,6 +62,7 @@ class XMLElement:
     confidence: float = 1.0
     repairs: List[StructureRepair] = field(default_factory=list)
     parent: Optional["XMLElement"] = None
+    preserve_structure: bool = False  # Prevents self-closing when content was removed
 
     # Source information for debugging and diagnostics
     source_tokens: List[Token] = field(default_factory=list)
@@ -961,9 +962,12 @@ class XMLTreeBuilder:
             self._handle_attribute_value(token)
         elif token.type == TokenType.WHITESPACE:
             self._process_whitespace_token(token)
-        elif token.type in (TokenType.COMMENT, TokenType.PROCESSING_INSTRUCTION):
-            # For now, skip these but could be added as special nodes
-            pass
+        elif token.type == TokenType.COMMENT:
+            # Handle comment tokens separately from processing instructions
+            self._handle_comment(token)
+        elif token.type == TokenType.PROCESSING_INSTRUCTION:
+            # Handle processing instructions
+            self._handle_processing_instruction(token)
         else:
             self._handle_unrecognized_token(token, result)
 
@@ -1018,12 +1022,79 @@ class XMLTreeBuilder:
 
     def _handle_unrecognized_token(self, token: Token, result: ParseResult) -> None:
         """Handle unrecognized token types."""
+        # Special handling for INVALID_CHARS tokens - convert to text content
+        # when they contain valid XML text characters
+        if token.type == TokenType.INVALID_CHARS:
+            # Convert to text content to preserve valid characters like ?
+            self._add_text_content(token.value)
+            return
+            
         result.add_diagnostic(
             DiagnosticSeverity.WARNING,
             f"Unhandled token type: {token.type}",
             "token_processor",
             position={"offset": token.position.offset},
         )
+
+    def _handle_processing_instruction(self, token: Token) -> None:
+        """Handle processing instruction tokens.
+        
+        Processing instructions should be included in the output XML as raw PI content.
+        We store them specially to avoid escaping during output formatting.
+        """
+        pi_content = token.value.strip() if token.value else ""
+        
+        if not pi_content:
+            # Invalid PI (empty content) - ensure parent element is not collapsed to self-closing
+            if self._current_element is not None:
+                self._current_element.preserve_structure = True
+        else:
+            # Valid PI - store it as a special attribute to preserve it unescaped
+            # Format as proper processing instruction: <?target data?>
+            pi_formatted = f"<?{pi_content}?>"
+            
+            # Add the PI as a special attribute that won't be escaped
+            if self._current_element is not None:
+                # Store PI content in a special way that prevents escaping
+                if not hasattr(self._current_element, '_processing_instructions'):
+                    self._current_element._processing_instructions = []
+                self._current_element._processing_instructions.append(pi_formatted)
+                
+                # Also ensure element structure is preserved
+                self._current_element.preserve_structure = True
+            else:
+                # If no current element, add to text buffer as regular text
+                self._add_text_content(pi_formatted)
+
+    def _handle_comment(self, token: Token) -> None:
+        """Handle comment tokens.
+        
+        Comments should be included in the output XML as properly formatted comments.
+        We store them specially to avoid escaping during output formatting.
+        """
+        comment_content = token.value.strip() if token.value else ""
+        
+        if not comment_content:
+            # Empty comment - ensure parent element structure is preserved
+            if self._current_element is not None:
+                self._current_element.preserve_structure = True
+        else:
+            # Valid comment - store it as a special attribute that won't be escaped
+            # Format as proper comment: <!-- content -->
+            comment_formatted = f"<!-- {comment_content} -->"
+            
+            # Add the comment as a special attribute that won't be escaped
+            if self._current_element is not None:
+                # Store comment content in a special way that prevents escaping
+                if not hasattr(self._current_element, '_comments'):
+                    self._current_element._comments = []
+                self._current_element._comments.append(comment_formatted)
+                
+                # Also ensure element structure is preserved
+                self._current_element.preserve_structure = True
+            else:
+                # If no current element, add to text buffer as regular text
+                self._add_text_content(comment_formatted)
 
     def _handle_tag_name(self, token: Token, document: XMLDocument) -> None:
         """Handle tag name token for element creation."""
