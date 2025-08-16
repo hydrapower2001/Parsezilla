@@ -659,7 +659,7 @@ class ErrorRecoveryEngine:
             original_char: Character that caused error
 
         Returns:
-            RecoveryAction with skipped content as error token
+            RecoveryAction with skipped content as error token or no tokens if skipped entirely
         """
         # Create error token for skipped content
         error_token = Token(

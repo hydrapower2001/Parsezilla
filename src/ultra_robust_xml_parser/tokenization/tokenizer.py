@@ -399,17 +399,18 @@ class XMLTokenizer:
 
                 else:
                     # Regular tag - simple tokenization for well-formed XML only
-                    # Emit TAG_START
-                    tokens.append(Token(
-                        type=TokenType.TAG_START,
-                        value="<",
-                        position=start_pos,
-                        confidence=1.0
-                    ))
-
                     # Parse tag name and attributes simply (well-formed XML assumed)
                     tag_inner = tag_content[1:-1].strip()
+                    
+                    # Check if closing tag BEFORE emitting TAG_START
                     if tag_inner.startswith("/"):
+                        # Closing tag - emit TAG_START with "</"
+                        tokens.append(Token(
+                            type=TokenType.TAG_START,
+                            value="</",
+                            position=start_pos,
+                            confidence=1.0
+                        ))
                         # Closing tag
                         tag_name = tag_inner[1:].strip()
                         tokens.append(Token(
@@ -419,6 +420,14 @@ class XMLTokenizer:
                             confidence=1.0
                         ))
                     else:
+                        # Opening tag - emit TAG_START with "<"
+                        tokens.append(Token(
+                            type=TokenType.TAG_START,
+                            value="<",
+                            position=start_pos,
+                            confidence=1.0
+                        ))
+                        
                         # Opening tag - parse name and attributes
                         parts = tag_inner.split()
                         if parts:
@@ -661,6 +670,10 @@ class XMLTokenizer:
         Args:
             char: Single character to process
         """
+        # DEBUG: Track character processing (disabled)
+        # if char in "</>":
+        #     print(f"DEBUG: Processing '{char}' in state {self.state.name}, buffer='{self.token_buffer}'")
+        
         # State machine processing (before updating position)
         if self.state == TokenizerState.TEXT_CONTENT:
             self._process_text_content(char)
